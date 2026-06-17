@@ -1,39 +1,74 @@
 services:
   app:
-    build: .
+    build: . # Dockerfile
     volumes:
-      - .:/app
+      - .:/app # ホストのカレントディレクトリをコンテナの /app にバインドマウント(ソースコードライブ同期)
+      - vendor_data:/app/vendor # dockerイメージ内のvendorを使用
+    container_name: laravel_app
     ports:
-      - "8080:8080"
+      - '8080:8080'
     env_file:
       - .env
-    depends_on:
+    depends_on: # dbがhealthyなら起動
       db:
         condition: service_healthy
 
+  node:
+    image: node:lts-alpine3.24
+    container_name: laravel_node
+    working_dir: /app
+    volumes:
+      - .:/app
+      - node_modules_data:/app/node_modules
+    ports:
+      - '5173:5173'
+    command: sh -c "npm ci && npm run dev"
+
+  wayfinder:
+    image: stagerightlabs/watchfinder
+    container_name: laravel_wayfinder
+    environment:
+      - WATCH_CMD=php artisan wayfinder:generate --with-form
+    volumes:
+      - .:/var/www/html:cached
+    depends_on:
+      - app
+
   db:
     image: postgres:17
-    environment:
-      POSTGRES_DB: ${DB_DATABASE:-laravel}
-      POSTGRES_USER: ${DB_USERNAME:-laravel}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-secret}
-    volumes:
-      - pg_data:/var/lib/postgresql
+    container_name: laravel_db
+
+    ports:
+      - '5432:5432'
+    environment: # PostgreSQL初期設定（.envの変数を展開して渡す）
+      POSTGRES_DB: ${DB_DATABASE}
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes: # db_dataボリュームにデータをマウント
+      - db_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME}"]
+      test: ['CMD-SHELL', 'pg_isready']
       interval: 5s
       timeout: 5s
       retries: 5
 
   pgadmin:
-    image: dpage/pgadmin4:latest
-    environment:
-      PGADMIN_DEFAULT_EMAIL: admin@local.dev
-      PGADMIN_DEFAULT_PASSWORD: admin
+    image: dpage/pgadmin4:9.15.0
+    container_name: laravel_pgadmin
+
     ports:
-      - "5050:80"
-    depends_on:
+      - '5050:80' # コンテナの80番をホストの5050番に転送
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: password
+    volumes: # pgadmin_dataボリュームにデータをマウント
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on: # dbコンテナ起動後に起動
       - db
 
+
 volumes:
-  pg_data:
+  vendor_data:
+  node_modules_data:
+  db_data:
+  pgadmin_data:
